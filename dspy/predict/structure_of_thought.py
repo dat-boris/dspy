@@ -238,65 +238,107 @@ class PredictWithStructure(Predict):
 # This is the description that will be used by proposer to use as fht module description
 # when generating the instruction for the module.
 STRUCTURE_OF_THOUGHT_MODULE_DESCRIPTION = """
-The instruciton for the moduel is a JSON schema.  Utilizing that JSON schema, the moduel
-will generate a JSON object that attempts to solve the program task.  The JSON schema should
-represent a data structure that is relevant to the program task.
+This module uses the `proposed_instruction` (a JSON schema) to decide the structure of the model's output when solving the task described in `program_description`. The previous instruction is provided in `basic_instruction`, and your goal is to produce an improved `proposed_instruction` by rewriting and optimizing the JSON schema—while ensuring it remains fully compatible with the `baseline_schema` defined below.
 
-In particular, pay attention to the order of the json schema to ensure that the module
-should generate the JSON object in the correct order.
+Your output must be a valid JSON Schema. It must remain a superset of the baseline schema. You may add new fields, reorder fields, strengthen descriptions, expand reasoning structures, and introduce optional metadata fields. You may not remove or weaken any required fields from the baseline.
 
-For example, if the JSON schema is:
+----------------------------------------------------------------------
+Objective
+----------------------------------------------------------------------
 
-```json
+Rewrite and enhance a JSON Schema so that the model produces more structured reasoning, clearer intermediate states, and a well-ordered final answer.
+
+The task context is provided in:
+
+    program_description
+
+Update the schema with a focus on:
+- Improving field descriptions
+- Reordering fields to influence output order
+- Strengthening field naming and descriptions to explicitly guide expected content
+- Expanding reasoning into multi-step structures
+- Adding metadata to mitigate common LLM reasoning failures
+- Ensuring the entire output remains valid JSON Schema
+
+----------------------------------------------------------------------
+Guidelines
+----------------------------------------------------------------------
+
+1. Field Ordering
+Place reasoning or intermediate-state fields before the final answer field to enforce preferred generation order.
+
+Undesired:
 {
-    "answer": "string",
-    "reasoning": "string",
-}
-```
-
-We want to ensure that reasoning is the first field and answer is the second field, since
-we want the reasoning to be the first field and answer to be the second field.
-
-Also we can imporve the reasoning schema to be as specific as possible. For example,
-
-```json
-{
-    "reasoning": "string",
-    "answer": "string",
-}
-```
-
-The instruction provided (e.g. `basic_instruction`, `proposed_instruction`) MUST be a valid JSON schema.
-
-
-For example, if the `basic_instruction` is:
-{
-    "answer": "string",
-    "reasoning": "string",
+  "answer": "string",
+  "reasoning": "string"
 }
 
-Also make the proposed instruction more detaila in steps, for example you can
-try to conver the reasoning into a more detailed JSON schema of array of steps.
-
-For example, the `proposed_instruction` can be:
+Preferred:
 {
-    "steps": [
-        {
-            "step": "string",
-            "current_state": "string",
-        }
-    ],
-    "answer": "string",
+  "reasoning": "string",
+  "answer": "string"
 }
 
-Try to capture as much possible the information in the current state to be used in the next step.
+2. Expand Reasoning Structures
+Replace simple reasoning strings with structured or multi-step representations, such as:
 
-NOTE that the new schema MUST be super set of the baseline schema, which is:
+{
+  "steps": [
+    {
+      "explanation": "string",
+      "current_state": "string",
+      "next_action": "string"
+    }
+  ],
+  "answer": "string"
+}
+
+Optional improvements may include:
+- hypotheses or alternative branches
+- state snapshots and transitions
+- uncertainty annotations
+- validation passes
+- dead-end tracking or missteps
+
+3. Field Naming and Descriptions (Very Important)
+Carefully choose clear and directive field names and descriptions. The naming and description of each field strongly influences what the LLM places in that field.
+
+For example:
+- A field named `"detailed_reasoning_steps"` with the description *"Each step must explicitly reference the current state and the logical inference made"* produces better structured reasoning than a vague `"reasoning"` field.
+- A field named `"final_numeric_answer"` or `"chosen_option_letter"` informs the model of the expected answer type.
+- Descriptions should define format, purpose, constraints, and expectations (e.g., “one sentence,” “list of deductions,” “explicit variables used,” etc.).
+
+You are encouraged to redesign and rename fields whenever it improves clarity and guidance, as long as compatibility with the baseline schema is maintained.
+
+4. Add Creative but Valid Optional Fields
+Additional optional fields may improve reliability, for example:
+
+"self_checks": [
+  { "check": "string", "result": "string" }
+]
+
+"missteps": [
+  { "description": "string" }
+]
+
+These fields help the model avoid common failure modes such as skipping steps or hallucinating unavailable information.
+
+5. Maintain JSON Schema Validity
+All outputs must strictly follow JSON Schema rules. The final output must contain only the schema itself, without commentary.
+
+----------------------------------------------------------------------
+Baseline Schema (Your Output Must Be a Superset)
+----------------------------------------------------------------------
 
 ```json
 {baseline_schema}
 ```
 
+----------------------------------------------------------------------
+Required Output Format (Strict)
+----------------------------------------------------------------------
+
+Return only a JSON Schema that is a valid superset of the baseline schema. No prose, no explanation—only the schema.
 """
 
 
