@@ -69,7 +69,7 @@ def single_eval_example(test_input: str, dataset_name: str = "tracking_shuffled_
     Returns:
         The prediction result
     """
-    program = dspy.Predict(ExampleSignature)
+    program = dspy.StructureOfThought(ExampleSignature)
     answer = program(input=test_input)
     print(f"Single call answer: {answer.response.answer}")
 
