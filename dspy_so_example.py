@@ -2,12 +2,21 @@
 """
 DSPy Natural Language Example
 """
+import argparse
 import re
 
 from pydantic import BaseModel, Field
 import dspy
+from dspy.teleprompt import COPRO
+from dspy.teleprompt.utils import get_signature
 
 from examples.dataset_loader import load_dspy_dataset
+
+
+EXPERIMENT_MODEL = "claude-haiku-3"
+EXPERIMENT_NAME = "DSPy-StructureOfThought"
+DATASET_NAME = "shuffled_five"
+
 
 # Enable MLflow autologging for DSPy optimization tracking (optional)
 try:
@@ -21,14 +30,14 @@ try:
 
     # Configure MLflow tracking
     mlflow.set_tracking_uri("http://localhost:5000")  # Use local MLflow server
-    mlflow.set_experiment("DSPy-StructureOfThought-Optimization")
+    mlflow.set_experiment(f"{EXPERIMENT_NAME}-{DATASET_NAME}-{EXPERIMENT_MODEL}")
 except ImportError:
     print("MLflow not available, continuing without tracking")
     pass
 
 # Points at LiteLLM proxy
 dspy.configure(
-    lm=dspy.LM("openai/claude-haiku-3", api_base="http://0.0.0.0:4000"),
+    lm=dspy.LM(f"openai/{EXPERIMENT_MODEL}", api_base="http://0.0.0.0:4000"),
     adapter=dspy.JSONAdapter()  # Use JSONAdapter for structured output
 )
 
@@ -39,12 +48,98 @@ dspy.configure_cache(enable_disk_cache=False)
 OPTIMIZATION_MODEL = dspy.LM("openai/gpt-5.1", api_base="http://0.0.0.0:4000")
 
 
+START_SCHEMA = """
+{
+  "$defs": {
+    "SwapStep": {
+      "description": "A single chronological step in tracking the swaps and current pairings.",
+      "type": "object",
+      "properties": {
+        "step_index": {
+          "description": "1-based index indicating the order of this step in the reasoning sequence.",
+          "type": "integer"
+        },
+        "operation_description": {
+          "description": "Verbatim or paraphrased description of the swap or action performed at this step.",
+          "type": "string"
+        },
+        "pairings_before": {
+          "description": "Mapping of each primary character to their partner immediately before this step is applied.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "pairings_after": {
+          "description": "Mapping of each primary character to their partner immediately after this step is applied.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "focus_character_partner_after": {
+          "description": "The partner of the specific character asked about in the question, immediately after this step.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_index",
+        "operation_description",
+        "pairings_before",
+        "pairings_after",
+        "focus_character_partner_after"
+      ],
+      "additionalProperties": false
+    },
+    "StructoResponse": {
+      "description": "Structured response container with detailed step-by-step tracking and final answer.",
+      "type": "object",
+      "properties": {
+        "steps": {
+          "description": "Ordered list of reasoning steps that track how the pairings change after each swap.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SwapStep"
+          },
+          "minItems": 1
+        },
+        "summary_reasoning": {
+          "description": "Concise natural-language summary explaining how the final answer follows from the tracked steps.",
+          "type": "string"
+        },
+        "answer": {
+          "description": "The final answer to the question - give the answer strictly in the format (A), (B), (C), (D), or (E).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "steps",
+        "summary_reasoning",
+        "answer"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "response": {
+      "$ref": "#/$defs/StructoResponse"
+    }
+  },
+  "required": [
+    "response"
+  ],
+  "additionalProperties": false
+}
+"""
+
 class StructoResponse(BaseModel):
     """Structured response container with reasoning and answer fields."""
     # NOTE: we intentionally put answer first so we can ensure that the order
     # is optimized when the program is used.
+    # Keep this as simple as possible so that the optimizer can have space to evolve!
+    # reasoning: str = Field(description="The reasoning process for the answer")
     answer: str = Field(description="The final answer to the question - give the answer in format of (A), (B), (C), (D), or (E)")
-    reasoning: str = Field(description="The reasoning process for the answer")
 
 
 class ExampleSignature(dspy.Signature):
@@ -76,7 +171,11 @@ def validate_answer(example, pred, trace=None):
     return target.lower() == pred_answer.lower()
 
 
-def single_eval_example(test_input: str, dataset_name: str = "tracking_shuffled_objects_five_objects"):
+def single_eval_example(
+    test_input: str,
+    dataset_name: str = "tracking_shuffled_objects_five_objects",
+    start_schema: str = START_SCHEMA,
+):
     """
     Run a single evaluation example with the base program.
 
@@ -88,6 +187,19 @@ def single_eval_example(test_input: str, dataset_name: str = "tracking_shuffled_
         The prediction result
     """
     program = dspy.StructureOfThought(ExampleSignature)
+
+    # Override the initial JSON schema instructions for the underlying predictor
+    # so that optimization starts from the richer, hand-crafted `START_SCHEMA`.
+    if start_schema:
+        print(f"Overriding initial JSON schema instructions with: {start_schema}")
+        predictors = program.predictors()
+        if predictors:
+            predictor = predictors[0]
+            sig = get_signature(predictor)
+            predictor.signature = sig.with_instructions(start_schema)
+        else:
+            raise ValueError("No predictors found in the program")
+
     answer = program(input=test_input)
     print("=== StructureOfThought Schema ===")
     print(program.schema_repr())
@@ -113,6 +225,7 @@ def optimize(
     num_threads: int = 1,
     auto: str = "light",
     limit: int = None,
+    use_copro: bool = False,
 ):
     """
     Optimize a DSPy program using MIPROv2 with minimal cycles.
@@ -123,6 +236,7 @@ def optimize(
         num_threads: Number of threads to use
         auto: Auto mode for MIPROv2 (default: "light" for minimal cycles)
         limit: Optional limit on the number of examples to load (default: None)
+        use_copro: If True, use COPRO optimizer instead of MIPROv2
 
     Returns:
         Optimized DSPy program
@@ -142,14 +256,31 @@ def optimize(
     def metric_with_filter(example, pred, trace=None):
         return validate_answer(example, pred, trace)
 
-    # Optimize the program with MIPROv2 - minimal cycles
-    teleprompter = dspy.MIPROv2(
-        metric=metric_with_filter,
-        auto=auto,
-        num_threads=num_threads,
-        prompt_model=OPTIMIZATION_MODEL,
-    )
-    optimized_program = teleprompter.compile(base_program, trainset=trainset)
+    # Optimize the program with the selected optimizer (MIPROv2 by default, or COPRO if requested)
+    if use_copro:
+        teleprompter = COPRO(
+            metric=metric_with_filter,
+            prompt_model=OPTIMIZATION_MODEL,
+            breadth=8,  # Set to 8 to ensure n <= 8 (COPRO uses n=breadth or n=breadth-1)
+            init_temperature=1.0,  # Set to 1.0 instead of default 1.4
+        )
+        optimized_program = teleprompter.compile(
+            base_program,
+            trainset=trainset,
+            eval_kwargs={
+                "num_threads": num_threads,
+                "display_progress": True,
+                "display_table": 0,
+            },
+        )
+    else:
+        teleprompter = dspy.MIPROv2(
+            metric=metric_with_filter,
+            auto=auto,
+            num_threads=num_threads,
+            prompt_model=OPTIMIZATION_MODEL,
+        )
+        optimized_program = teleprompter.compile(base_program, trainset=trainset)
     print(f"Optimized program: {optimized_program}")
 
     return optimized_program
@@ -235,6 +366,20 @@ def evaluate(
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="DSPy StructureOfThought example")
+    parser.add_argument(
+        "--copro",
+        action="store_true",
+        help="Use COPRO optimizer instead of MIPROv2 for optimization.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Limit on the number of examples to use for optimization and evaluation (default: 20).",
+    )
+    args = parser.parse_args()
+
     # Example usage
     dataset_name = "tracking_shuffled_objects_five_objects"
     test_input = "Alice, Bob, Claire, Dave, and Eve are dancers at a square dance. At the start of a song, they each have a partner: Alice is dancing with Ophelia, Bob is dancing with Jamie, Claire is dancing with Melissa, Dave is dancing with Rodrigo, and Eve is dancing with Patrick.\nThroughout the song, the dancers often trade partners. First, Claire and Bob switch partners. Then, Claire and Eve switch partners. Then, Claire and Bob switch partners. Then, Eve and Dave switch partners. Finally, Claire and Alice switch partners. At the end of the dance, Alice is dancing with\nOptions:\n(A) Ophelia\n(B) Jamie\n(C) Melissa\n(D) Rodrigo\n(E) Patrick"
@@ -245,18 +390,18 @@ if __name__ == "__main__":
     print("=" * 60)
     base_program = single_eval_example(test_input, dataset_name=dataset_name)
 
-    # Evaluate the base program
-    # print("\n" + "=" * 60)
-    # print("1. Evaluating Base Program (20 examples)")
-    # print("=" * 60)
-    # accuracy = evaluate(base_program, limit=20)
-    # print(f"Base program accuracy: {accuracy}")
+    print(f"Base program schema: {base_program.output_schema_json}")
 
     # 2. Optimize the program
     print("\n" + "=" * 60)
-    print("2. Optimizing Program (MIPROv2 - minimal cycles, 20 examples)")
+    print(f"2. Optimizing Program (MIPROv2 or COPRO - minimal cycles, {args.limit} examples)")
     print("=" * 60)
-    optimized_program = optimize(auto="light", num_threads=1, limit=20)
+    optimized_program = optimize(
+        auto="light",
+        num_threads=1,
+        limit=args.limit,
+        use_copro=args.copro,
+    )
 
     # Test optimized program
     answer = optimized_program(input=test_input)
@@ -264,7 +409,7 @@ if __name__ == "__main__":
 
     # 3. Evaluate the optimized program
     print("\n" + "=" * 60)
-    print("3. Evaluating Program (20 examples)")
+    print(f"3. Evaluating Program ({args.limit} examples)")
     print("=" * 60)
-    accuracy = evaluate(optimized_program, limit=20)
+    accuracy = evaluate(optimized_program, limit=args.limit)
     print(f"Final accuracy: {accuracy}")
