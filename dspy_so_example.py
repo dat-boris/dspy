@@ -71,6 +71,10 @@ def single_eval_example(test_input: str, dataset_name: str = "tracking_shuffled_
     """
     program = dspy.StructureOfThought(ExampleSignature)
     answer = program(input=test_input)
+    print("=== StructureOfThought Schema ===")
+    print(program.schema_repr())
+    print("=== Single call StructuredResult ===")
+    print(answer.pretty())
     print(f"Single call answer: {answer.response.answer}")
 
     # Extract answer using regex
@@ -114,7 +118,7 @@ def optimize(
     )
 
     # Create base program
-    base_program = dspy.Predict(ExampleSignature)
+    base_program = dspy.StructureOfThought(ExampleSignature)
 
     # Create a metric function
     def metric_with_filter(example, pred, trace=None):
@@ -213,9 +217,9 @@ if __name__ == "__main__":
     answer = optimized_program(input=test_input)
     print(f"Optimized program answer: {answer}")
 
-    # 3. Evaluate the optimized program
-    print("\n" + "=" * 60)
-    print("3. Evaluating Program (20 examples)")
-    print("=" * 60)
-    accuracy = evaluate(optimized_program, limit=20)
-    print(f"Final accuracy: {accuracy}")
+    # # 3. Evaluate the optimized program
+    # print("\n" + "=" * 60)
+    # print("3. Evaluating Program (20 examples)")
+    # print("=" * 60)
+    # accuracy = evaluate(optimized_program, limit=20)
+    # print(f"Final accuracy: {accuracy}")

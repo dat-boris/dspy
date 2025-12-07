@@ -7,6 +7,7 @@ from dspy.predict.multi_chain_comparison import MultiChainComparison
 from dspy.predict.parallel import Parallel
 from dspy.predict.predict import Predict
 from dspy.predict.program_of_thought import ProgramOfThought
+from dspy.predict.structure_of_thought import StructureOfThought
 from dspy.predict.react import ReAct, Tool
 from dspy.predict.refine import Refine
 
@@ -19,6 +20,7 @@ __all__ = [
     "MultiChainComparison",
     "Predict",
     "ProgramOfThought",
+    "StructureOfThought",
     "ReAct",
     "Refine",
     "Tool",

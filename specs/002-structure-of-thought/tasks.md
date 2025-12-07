@@ -17,9 +17,9 @@
 
 **Purpose**: Establish minimal scaffolding and file layout for `StructureOfThought`.
 
-- [ ] T001 [P] [Shared] Create `dspy/predict/structure_of_thought.py` with a placeholder `StructureOfThought` class and module-level logger.
-- [ ] T002 [P] [Shared] Ensure `StructureOfThought` is importable from the `dspy` package (e.g., update `dspy/__init__.py` or equivalent export location).
-- [ ] T003 [P] [Shared] Add a skeleton test file `tests/predict/test_structure_of_thought.py` with a basic import-and-instantiation smoke test.
+- [x] T001 [P] [Shared] Create `dspy/predict/structure_of_thought.py` with a placeholder `StructureOfThought` class and module-level logger.
+- [x] T002 [P] [Shared] Ensure `StructureOfThought` is importable from the `dspy` package (e.g., update `dspy/__init__.py` or equivalent export location).
+- [x] T003 [P] [Shared] Add a skeleton test file `tests/predict/test_structure_of_thought.py` with a basic import-and-instantiation smoke test.
 
 **Checkpoint**: Codebase compiles/imports with a stub `StructureOfThought` and basic test scaffold in place.
 
@@ -31,10 +31,10 @@
 
 **⚠️ CRITICAL**: No user story work should begin until this phase is complete.
 
-- [ ] T010 [US-Foundation] Define internal data structures for `OutputSchema` and `reasoning_json_schema` in `dspy/predict/structure_of_thought.py`, aligned with `data-model.md` (primary outputs + reasoning JSON superset rule).
-- [ ] T011 [US-Foundation] Implement a `StructuredResult` container type in `dspy/predict/structure_of_thought.py` with fields for primary outputs, `reasoning_json`, and validation metadata.
-- [ ] T012 [P] [US-Foundation] Wire validation to existing adapter/JSON tooling (e.g., use JSON-oriented adapter behavior) without yet exposing a full user-facing API.
-- [ ] T013 [P] [US-Foundation] Add unit tests in `tests/predict/test_structure_of_thought.py` that validate basic schema enforcement and strict error behavior on clearly invalid outputs.
+- [x] T010 [US-Foundation] Define internal data structures for `OutputSchema` and `reasoning_json_schema` in `dspy/predict/structure_of_thought.py`, aligned with `data-model.md` (primary outputs + reasoning JSON superset rule).
+- [x] T011 [US-Foundation] Implement a `StructuredResult` container type in `dspy/predict/structure_of_thought.py` with fields for primary outputs, `reasoning_json`, and validation metadata.
+- [x] T012 [P] [US-Foundation] Wire validation to existing adapter/JSON tooling (e.g., use JSON-oriented adapter behavior) without yet exposing a full user-facing API.
+- [x] T013 [P] [US-Foundation] Add unit tests in `tests/predict/test_structure_of_thought.py` that validate basic schema enforcement and strict error behavior on clearly invalid outputs.
 
 **Checkpoint**: Schema types and strict validation exist and are test-covered; `StructureOfThought` can be built on top safely.
 
@@ -48,11 +48,11 @@
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement the public `StructureOfThought` constructor in `dspy/predict/structure_of_thought.py` that accepts a signature with both output schema and `reasoning_json_schema`.
-- [ ] T021 [US1] Implement the synchronous call path (`__call__` / `forward`) to run the underlying LM/program, parse outputs into `StructuredResult`, and enforce strict validation (error on mismatch).
-- [ ] T022 [P] [US1] Add pretty-printed schema and example-output inspection helpers (e.g., `schema_repr` / similar) for debugging, using indented JSON-like formatting.
-- [ ] T023 [P] [US1] Extend `tests/predict/test_structure_of_thought.py` with end-to-end tests that instantiate a toy signature, run `StructureOfThought`, and assert on `StructuredResult` fields and error paths.
-- [ ] T024 [P] [US1] Add or update a minimal example path in `examples/dspy_so_example.py` to demonstrate constructing and calling a `StructureOfThought` program with a simple schema.
+- [x] T020 [US1] Implement the public `StructureOfThought` constructor in `dspy/predict/structure_of_thought.py` that accepts a signature with both output schema and `reasoning_json_schema`.
+- [x] T021 [US1] Implement the synchronous call path (`__call__` / `forward`) to run the underlying LM/program, parse outputs into `StructuredResult`, and enforce strict validation (error on mismatch).
+- [x] T022 [P] [US1] Add pretty-printed schema and example-output inspection helpers (e.g., `schema_repr` / similar) for debugging, using indented JSON-like formatting.
+- [x] T023 [P] [US1] Extend `tests/predict/test_structure_of_thought.py` with end-to-end tests that instantiate a toy signature, run `StructureOfThought`, and assert on `StructuredResult` fields and error paths.
+- [x] T024 [P] [US1] Add or update a minimal example path in `examples/dspy_so_example.py` to demonstrate constructing and calling a `StructureOfThought` program with a simple schema.
 
 **Checkpoint**: User Story 1 is implementable and testable independently; users can get structured outputs plus validated `reasoning_json` from a simple example.
 
