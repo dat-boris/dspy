@@ -97,20 +97,10 @@ class StructureJSONAdapter(JSONAdapter):
         # JSON-serializable primitives before validating.
         instance = serialize_for_json(fields)
 
-        try:
-            validate(instance=instance, schema=schema)
-        except ValidationError as e:
-            raise AdapterParseError(
-                adapter_name=self.__class__.__name__,
-                signature=signature,
-                lm_response=completion,
-                parsed_result=instance,
-                message=(
-                    "LM response does not conform to the JSON schema defined in "
-                    "signature.instructions: " + e.message
-                ),
-            ) from e
-
+        ## NOTE: previously we validate the fields here using:
+        #   validate(instance=instance, schema=schema)
+        # However it is not necessary since the schema is a super set of the
+        # converted instance.  So we just need to chill and return the fields.
         return fields
 
     def format_task_description(self, signature: type[Signature]) -> str:

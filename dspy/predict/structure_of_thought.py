@@ -246,28 +246,33 @@ In particular, pay attention to the order of the json schema to ensure that the 
 should generate the JSON object in the correct order.
 
 For example, if the JSON schema is:
+
+```json
 {
     "answer": "string",
     "reasoning": "string",
 }
+```
+
 We want to ensure that reasoning is the first field and answer is the second field, since
 we want the reasoning to be the first field and answer to be the second field.
 
-Also we can imporve the reasoning schema to be as specific as possible.
+Also we can imporve the reasoning schema to be as specific as possible. For example,
+
+```json
+{
+    "reasoning": "string",
+    "answer": "string",
+}
+```
 
 The instruction provided (e.g. `basic_instruction`, `proposed_instruction`) MUST be a valid JSON schema.
 
-Ideally, the `proposed_instruction` should be derived as a compataiable JSON schema from the `basic_instruction`.
 
 For example, if the `basic_instruction` is:
 {
     "answer": "string",
     "reasoning": "string",
-}
-The `proposed_instruction` should be:
-{
-    "reasoning": "string",
-    "answer": "string",
 }
 
 Also make the proposed instruction more detaila in steps, for example you can
@@ -285,6 +290,13 @@ For example, the `proposed_instruction` can be:
 }
 
 Try to capture as much possible the information in the current state to be used in the next step.
+
+NOTE that the new schema MUST be super set of the baseline schema, which is:
+
+```json
+{baseline_schema}
+```
+
 """
 
 
@@ -344,8 +356,10 @@ class StructureOfThought(Module):
 
     @property
     def module_description(self) -> str:
-        return STRUCTURE_OF_THOUGHT_MODULE_DESCRIPTION
-
+        # Use the current Pydantic-derived output schema as the baseline.
+        # NOTE: we use replace here as `.format()` is more generic and could cause KeyError
+        # if the prompt template includes other placeholders.
+        return STRUCTURE_OF_THOUGHT_MODULE_DESCRIPTION.replace("{baseline_schema}", self.output_schema_json)
 
     def schema_repr(self) -> str:
         """Return a human-readable JSON schema for the structured outputs.
