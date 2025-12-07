@@ -43,6 +43,16 @@ class JSONAdapter(ChatAdapter):
         # JSONAdapter uses native function calling by default.
         super().__init__(callbacks=callbacks, use_native_function_calling=use_native_function_calling)
 
+    def _get_structured_outputs_model(self, signature: SignatureMeta) -> type[pydantic.BaseModel]:
+        """Hook for building the structured-outputs response model.
+
+        Subclasses (e.g., adapters that want to derive their schema from
+        ``signature.instructions`` instead of ``signature.output_fields``)
+        can override this method to customize the model used for providers
+        that support native structured outputs.
+        """
+        return _get_structured_outputs_response_format(signature, self.use_native_function_calling)
+
     def _json_adapter_call_common(self, lm, lm_kwargs, signature, demos, inputs, call_fn):
         """Common call logic to be used for both sync and async calls."""
         provider = lm.model.split("/", 1)[0] or "openai"
@@ -75,9 +85,7 @@ class JSONAdapter(ChatAdapter):
             return result
 
         try:
-            structured_output_model = _get_structured_outputs_response_format(
-                signature, self.use_native_function_calling
-            )
+            structured_output_model = self._get_structured_outputs_model(signature)
             lm_kwargs["response_format"] = structured_output_model
             return super().__call__(lm, lm_kwargs, signature, demos, inputs)
         except Exception:
@@ -98,7 +106,7 @@ class JSONAdapter(ChatAdapter):
             return await result
 
         try:
-            structured_output_model = _get_structured_outputs_response_format(signature)
+            structured_output_model = self._get_structured_outputs_model(signature)
             lm_kwargs["response_format"] = structured_output_model
             return await super().acall(lm, lm_kwargs, signature, demos, inputs)
         except Exception:

@@ -13,6 +13,7 @@ from dspy.predict.structure_of_thought import (
 )
 from dspy.teleprompt.utils import get_signature
 from dspy.utils import DummyLM
+from dspy.utils.exceptions import AdapterParseError
 
 
 def test_structure_of_thought_import_and_basic_instantiation_with_pydantic_output():
@@ -281,3 +282,75 @@ def test_predict_with_structure_with_instructions_overrides_schema_used_in_forwa
     _, _, sig, _, _ = pws._forward_preprocess(question="What is 1+1?", lm=lm)
     assert sig.instructions == new_schema_str
     assert json.loads(sig.instructions) == new_schema
+
+
+def test_predict_with_structure_with_schema_adapter_accepts_valid_response():
+    class SimpleResponse(pydantic.BaseModel):
+        answer: str
+
+    class SimpleSignature(dspy.Signature):
+        question: str = dspy.InputField()
+        response: SimpleResponse = dspy.OutputField()
+
+    lm = DummyLM([{"response": {"answer": "42"}}])
+    dspy.configure(lm=lm)
+
+    pws = PredictWithStructure(SimpleSignature)
+    prediction = pws(question="What is 6 * 7?")
+
+    assert isinstance(prediction.response, SimpleResponse)
+    assert prediction.response.answer == "42"
+
+
+def test_predict_with_structure_with_schema_adapter_raises_on_schema_violation():
+    class SimpleResponse(pydantic.BaseModel):
+        answer: str
+
+    class SimpleSignature(dspy.Signature):
+        question: str = dspy.InputField()
+        response: SimpleResponse = dspy.OutputField()
+
+    # Start from a normal PredictWithStructure so it computes a schema, then
+    # override its instructions with a schema that *also* requires an extra
+    # top-level field that the LM will not provide.
+    pws = PredictWithStructure(SimpleSignature)
+    original_sig = get_signature(pws)
+
+    stricter_schema = {
+        "type": "object",
+        "properties": {
+            "response": {"type": "object"},
+            "extra": {"type": "string"},
+        },
+        "required": ["response", "extra"],
+    }
+    stricter_schema_str = json.dumps(stricter_schema, indent=2, sort_keys=True)
+    updated_sig = original_sig.with_instructions(stricter_schema_str)
+    pws.signature = updated_sig
+
+    # LM returns a response that matches the original schema but violates the
+    # stricter one (missing the required 'extra' field).
+    lm = DummyLM([{"response": {"answer": "42"}}])
+    dspy.configure(lm=lm)
+
+    with pytest.raises(AdapterParseError):
+        _ = pws(question="What is 6 * 7?")
+
+
+def test_structure_of_thought_with_schema_adapter_end_to_end():
+    class SimpleResponse(pydantic.BaseModel):
+        answer: str
+
+    class SimpleSignature(dspy.Signature):
+        question: str = dspy.InputField()
+        response: SimpleResponse = dspy.OutputField()
+
+    lm = DummyLM([{"response": {"answer": "42"}}])
+    dspy.configure(lm=lm)
+
+    sot = dspy.StructureOfThought(SimpleSignature)
+    result = sot(question="What is 6 * 7?")
+
+    assert isinstance(result, StructuredResult)
+    assert isinstance(result.response, SimpleResponse)
+    assert result.response.answer == "42"

@@ -4,6 +4,7 @@ from typing import Any
 
 import dspy
 import pydantic
+from dspy.adapters.structure_json_adapter import StructureJSONAdapter
 from dspy.predict.predict import Predict
 from dspy.primitives.module import Module
 from dspy.signatures.signature import Signature, ensure_signature
@@ -211,6 +212,28 @@ class PredictWithStructure(Predict):
         # Expose the schema via instructions so optimizers/proposers can see it.
         self.signature.instructions = self.output_schema_json
 
+    def forward(self, **kwargs):
+        """Call the LM using a schema-driven JSON adapter.
+
+        This ensures that, for modules built on top of ``PredictWithStructure``,
+        LM responses are validated against the JSON schema stored in
+        ``signature.instructions`` (as produced by this class or updated by a
+        teleprompter/optimizer).
+        """
+
+        from dspy.dsp.utils.settings import settings
+
+        with settings.context(adapter=StructureJSONAdapter()):
+            return super().forward(**kwargs)
+
+    async def aforward(self, **kwargs):
+        """Async counterpart of :meth:`forward` using ``StructureJSONAdapter``."""
+
+        from dspy.dsp.utils.settings import settings
+
+        with settings.context(adapter=StructureJSONAdapter()):
+            return await super().aforward(**kwargs)
+
 
 # This is the description that will be used by proposer to use as fht module description
 # when generating the instruction for the module.
@@ -246,6 +269,22 @@ The `proposed_instruction` should be:
     "reasoning": "string",
     "answer": "string",
 }
+
+Also make the proposed instruction more detaila in steps, for example you can
+try to conver the reasoning into a more detailed JSON schema of array of steps.
+
+For example, the `proposed_instruction` can be:
+{
+    "steps": [
+        {
+            "step": "string",
+            "current_state": "string",
+        }
+    ],
+    "answer": "string",
+}
+
+Try to capture as much possible the information in the current state to be used in the next step.
 """
 
 

@@ -27,7 +27,7 @@
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core data structures, schema logic, structured prediction primitive, and documentation of how they integrate with teleprompters/proposers.
+**Purpose**: Core data structures, schema logic, structured prediction primitive, schema-driven adapter behavior, and documentation of how they integrate with teleprompters/proposers.
 
 **⚠️ CRITICAL**: No user story work should begin until this phase is complete.
 
@@ -39,7 +39,10 @@
 - [x] T015 [P] [US-Foundation] Refactor `StructureOfThought` to stop constructing plain `dspy.Predict` instances and instead compose one or more `PredictWithStructure` predictors from the provided signature, so that teleprompters/proposers still see standard predictors but their `instructions` contain the output JSON schema.
 - [x] T016 [P] [US-Foundation] Ensure `StructureOfThought.rebind_signature` delegates schema evolution to the underlying `PredictWithStructure` predictors (updating their Signatures and `instructions`), and enforces extend-only compatibility when updating the output schema.
 - [x] T017 [P] [US-Foundation] Add tests in `tests/predict/test_structure_of_thought.py` that verify, for a `StructureOfThought` built on `PredictWithStructure`, that `get_signature(program.predictors()[i]).instructions` is valid JSON matching the output schema (before and after `rebind_signature`).
-- [ ] T018 [P] [US-Foundation] Update the class-level docstrings and key inline comments in `dspy/predict/structure_of_thought.py` (for both `PredictWithStructure` and `StructureOfThought`) to clearly document: (a) that `PredictWithStructure` sets `Signature.instructions` to the output JSON schema, and (b) that teleprompters/proposers (e.g., `GroundedProposer`) are expected to read this schema via `get_signature(predictor).instructions` when constructing `basic_instruction`.
+- [x] T018 [P] [US-Foundation] Update the class-level docstrings and key inline comments in `dspy/predict/structure_of_thought.py` (for both `PredictWithStructure` and `StructureOfThought`) to clearly document: (a) that `PredictWithStructure` sets `Signature.instructions` to the output JSON schema, and (b) that teleprompters/proposers (e.g., `GroundedProposer`) are expected to read this schema via `get_signature(predictor).instructions` when constructing `basic_instruction`.
+- [x] T019 [P] [US-Foundation] Design and implement a schema-driven adapter in `dspy/adapters/` (e.g., `StructureJSONAdapter` subclassing `JSONAdapter`) that, when used, builds its Pydantic response model from a JSON schema string (e.g., `signature.instructions`) instead of inferring solely from `signature.output_fields`.
+- [x] T020 [P] [US-Foundation] Integrate the schema-driven adapter with `PredictWithStructure` (and thus `StructureOfThought`) by ensuring that, when these modules call the LM, they do so inside a `settings.context(adapter=StructureJSONAdapter(...))` or via configuration, so that structured outputs are validated strictly against the JSON schema.
+- [x] T021 [P] [US-Foundation] Add tests in `tests/predict/test_structure_of_thought.py` that exercise `PredictWithStructure`/`StructureOfThought` together with the schema-driven adapter: (a) LM responses that match the JSON schema are accepted and parsed correctly; (b) LM responses that violate the schema (missing required fields, wrong types, extra fields) raise clear parse/validation errors.
 
 **Checkpoint**: The structured prediction primitive (`PredictWithStructure`), schema logic, and strict validation exist and are test-covered; `StructureOfThought` composes them and is ready for user stories.
 
