@@ -66,10 +66,10 @@
 
 ### Implementation for User Story 2
 
-- [ ] T030 [US2] Add mechanisms in `dspy/predict/structure_of_thought.py` to bind and rebind updated signatures/`reasoning_json_schema` (e.g., via helper methods or integration points used by teleprompt/optimizers).
-- [ ] T031 [US2] Implement extend-only compatibility checks so schema updates that remove or weaken existing fields are rejected or clearly surfaced as errors.
-- [ ] T032 [P] [US2] Add tests that simulate an optimization loop: update the schema, re-run `StructureOfThought`, and verify that both primary outputs and `reasoning_json` respect the new schema while preserving earlier fields.
-- [ ] T033 [P] [US2] Add a focused example (or extend `dspy_so_example.py`) to show a small iterative refinement of `reasoning_json_schema` and how `reasoning_json` evolves while remaining a superset of the output structure.
+- [x] T030 [US2] Add mechanisms in `dspy/predict/structure_of_thought.py` to bind and rebind updated signatures/`reasoning_json_schema` (e.g., via helper methods or integration points used by teleprompt/optimizers).
+- [x] T031 [US2] Implement extend-only compatibility checks so schema updates that remove or weaken existing fields are rejected or clearly surfaced as errors.
+- [x] T032 [P] [US2] Add tests that simulate an optimization loop: update the schema, re-run `StructureOfThought`, and verify that both primary outputs and `reasoning_json` respect the new schema while preserving earlier fields.
+- [x] T033 [P] [US2] Add a focused example (or extend `dspy_so_example.py`) to show a small iterative refinement of `reasoning_json_schema` and how `reasoning_json` evolves while remaining a superset of the output structure.
 
 **Checkpoint**: Schema evolution and extend-only compatibility are implemented and verified; optimization workflows can safely adjust `reasoning_json_schema`.
 

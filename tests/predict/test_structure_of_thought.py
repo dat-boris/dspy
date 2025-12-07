@@ -4,7 +4,12 @@ import pytest
 
 import dspy
 import pydantic
-from dspy.predict.structure_of_thought import StructuredResult, _validate_reasoning_superset
+from dspy.predict.structure_of_thought import (
+    StructuredResult,
+    _check_extend_only_compatible,
+    _ensure_pydantic_outputs,
+    _validate_reasoning_superset,
+)
 
 
 def test_structure_of_thought_import_and_basic_instantiation_with_pydantic_output():
@@ -122,8 +127,100 @@ def test_structure_of_thought_schema_repr_uses_pretty_json():
     sot = dspy.StructureOfThought(SimpleSignature)
     schema_text = sot.schema_repr()
 
-    # Should be valid JSON and pretty-printed (multi-line with indentation).
+    # Should be valid JSON and pretty-printed (multi-line with indentation) and
+    # focused on output fields.
     parsed = json.loads(schema_text)
     assert isinstance(parsed, dict)
+    assert "properties" in parsed
+    assert set(parsed["properties"].keys()) == {"response"}
     assert "{\n" in schema_text
+
+
+def test_ensure_pydantic_outputs_enforces_pydantic_models():
+    class OkModel(pydantic.BaseModel):
+        value: str
+
+    class GoodSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: OkModel = dspy.OutputField()
+
+    # Should not raise.
+    _ensure_pydantic_outputs(GoodSig)
+
+    class BadSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: str = dspy.OutputField()
+
+    with pytest.raises(TypeError):
+        _ensure_pydantic_outputs(BadSig)
+
+
+def test_check_extend_only_compatible_allows_superset_and_subclass_types():
+    class BaseOut(pydantic.BaseModel):
+        value: str
+
+    class ExtendedOut(BaseOut):
+        extra: int | None = None
+
+    class OldSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: BaseOut = dspy.OutputField()
+
+    class NewSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: ExtendedOut = dspy.OutputField()
+        z: ExtendedOut = dspy.OutputField()
+
+    # NewSig adds a field and uses a subclass type for y; this is allowed.
+    _check_extend_only_compatible(OldSig, NewSig)
+
+
+def test_check_extend_only_compatible_rejects_missing_or_weakened_fields():
+    class BaseOut(pydantic.BaseModel):
+        value: str
+
+    class DifferentOut(pydantic.BaseModel):
+        other: int
+
+    class OldSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: BaseOut = dspy.OutputField()
+
+    class MissingFieldSig(dspy.Signature):
+        x: str = dspy.InputField()
+
+    class WeakenedTypeSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: DifferentOut = dspy.OutputField()
+
+    with pytest.raises(ValueError):
+        _check_extend_only_compatible(OldSig, MissingFieldSig)
+
+    with pytest.raises(ValueError):
+        _check_extend_only_compatible(OldSig, WeakenedTypeSig)
+
+
+def test_rebind_signature_updates_signature_and_preserves_config():
+    class BaseOut(pydantic.BaseModel):
+        value: str
+
+    class ExtendedOut(BaseOut):
+        extra: int | None = None
+
+    class OldSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: BaseOut = dspy.OutputField()
+
+    class NewSig(dspy.Signature):
+        x: str = dspy.InputField()
+        y: ExtendedOut = dspy.OutputField()
+
+    sot = dspy.StructureOfThought(OldSig, strict=True, temperature=0.3)
+    old_sig = sot.signature
+
+    sot.rebind_signature(NewSig)
+
+    assert sot.signature is not old_sig
+    assert "y" in sot.signature.output_fields
+    assert sot.signature.output_fields["y"].annotation is ExtendedOut
 

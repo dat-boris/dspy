@@ -87,6 +87,99 @@ def _validate_reasoning_superset(outputs: dict[str, Any], reasoning_json: dict[s
         raise ValueError(message)
 
 
+def _ensure_pydantic_outputs(signature: Signature) -> None:
+    """Ensure all output fields use Pydantic models for strict structured outputs."""
+
+    for name, field in signature.output_fields.items():
+        annotation = field.annotation
+        if not isinstance(annotation, type) or not issubclass(annotation, pydantic.BaseModel):
+            raise TypeError(
+                "StructureOfThought requires all output fields to be Pydantic models. "
+                f"Field '{name}' has annotation {annotation!r}, which is not a subclass of pydantic.BaseModel."
+            )
+
+
+def _check_extend_only_compatible(old: Signature, new: Signature) -> None:
+    """Validate that `new` is an extend-only evolution of `old` for outputs.
+
+    Rules:
+    - All output field names present in `old` MUST also be present in `new`.
+    - For each such field, the type in `new` MUST be the same as in `old`,
+      or a subclass (for Pydantic models). This prevents weakening types
+      while allowing extension through subclassing or adding new fields.
+    """
+
+    missing: list[str] = []
+    type_mismatches: list[str] = []
+
+    for name, old_field in old.output_fields.items():
+        if name not in new.output_fields:
+            missing.append(name)
+            continue
+
+        new_field = new.output_fields[name]
+        old_ann = old_field.annotation
+        new_ann = new_field.annotation
+
+        if not isinstance(old_ann, type) or not isinstance(new_ann, type):
+            type_mismatches.append(name)
+            continue
+
+        # Allow identical types or subclasses (for Pydantic-style extension).
+        if not (new_ann is old_ann or issubclass(new_ann, old_ann)):
+            type_mismatches.append(name)
+
+    if missing or type_mismatches:
+        details = []
+        if missing:
+            details.append(f"missing output fields: {sorted(missing)}")
+        if type_mismatches:
+            details.append(f"incompatible output field types for: {sorted(type_mismatches)}")
+        raise ValueError(
+            "New signature is not extend-only compatible with previous signature; " + "; ".join(details),
+        )
+
+
+def _build_output_schema(signature: Signature) -> dict[str, Any]:
+    """Build a JSON schema focused on the signature's output fields.
+
+    This is derived from the full Pydantic-generated schema, but restricted to
+    the output fields so that it can be used as a concise, human-readable
+    description of the structured result shape.
+    """
+
+    full_schema = signature.model_json_schema()
+    properties = full_schema.get("properties", {}) or {}
+
+    output_props: dict[str, Any] = {}
+    for name in signature.output_fields.keys():
+        if name in properties:
+            # Make a shallow copy so we can drop DSPy-specific extras.
+            prop = dict(properties[name])
+            prop.pop("__dspy_field_type", None)
+            prop.pop("title", None)
+            prop.pop("prefix", None)
+            prop.pop("desc", None)
+            output_props[name] = prop
+
+    output_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": output_props,
+    }
+
+    # Filter the required list down to just outputs, if present.
+    if "required" in full_schema:
+        required_outputs = [name for name in full_schema["required"] if name in output_props]
+        if required_outputs:
+            output_schema["required"] = required_outputs
+
+    # Preserve any referenced definitions ($defs), since output types may rely on them.
+    if "$defs" in full_schema:
+        output_schema["$defs"] = full_schema["$defs"]
+
+    return output_schema
+
+
 class StructureOfThought(Module):
     """StructureOfThought program (Phase 1–2 implementation).
 
@@ -108,25 +201,48 @@ class StructureOfThought(Module):
         super().__init__()
         self.signature: Signature = ensure_signature(signature)
         self.strict: bool = strict
+        self._predict_config: dict[str, Any] = dict(config)
 
         # Enforce that all outputs are structured via Pydantic models.
-        for name, field in self.signature.output_fields.items():
-            annotation = field.annotation
-            if not isinstance(annotation, type) or not issubclass(annotation, pydantic.BaseModel):
-                raise TypeError(
-                    "StructureOfThought requires all output fields to be Pydantic models. "
-                    f"Field '{name}' has annotation {annotation!r}, which is not a subclass of pydantic.BaseModel."
-                )
+        _ensure_pydantic_outputs(self.signature)
+
+        # Cache a JSON schema focused on output fields for easy inspection.
+        self.output_schema: dict[str, Any] = _build_output_schema(self.signature)
+        self.output_schema_json: str = json.dumps(self.output_schema, indent=2, sort_keys=True)
 
         # Reuse the existing Predict primitive so we immediately behave like a
         # standard DSPy program from the perspective of teleprompters/proposers.
-        self._predict = dspy.Predict(self.signature, **config)
+        self._predict = dspy.Predict(self.signature, **self._predict_config)
 
     def schema_repr(self) -> str:
-        """Return a human-readable JSON schema for the bound signature."""
+        """Return a human-readable JSON schema for the structured outputs.
 
-        schema = self.signature.model_json_schema()
-        return json.dumps(schema, indent=2, sort_keys=True)
+        This is equivalent to `output_schema_json` and focuses on the output
+        side of the signature, not inputs, for easier reasoning about result
+        structure.
+        """
+
+        return self.output_schema_json
+
+    def rebind_signature(self, signature: str | type[Signature]) -> None:
+        """Update the bound signature in an extend-only compatible way.
+
+        This is intended for optimization/teleprompting-style workflows that
+        evolve the schema over time. It:
+        - Ensures new outputs remain Pydantic models.
+        - Enforces extend-only compatibility with the previous signature.
+        - Rebuilds the underlying Predict module with the new signature while
+          preserving its configuration.
+        """
+
+        new_sig = ensure_signature(signature)
+        _ensure_pydantic_outputs(new_sig)
+        _check_extend_only_compatible(self.signature, new_sig)
+
+        self.signature = new_sig
+        self.output_schema = _build_output_schema(self.signature)
+        self.output_schema_json = json.dumps(self.output_schema, indent=2, sort_keys=True)
+        self._predict = dspy.Predict(self.signature, **self._predict_config)
 
     def forward(self, **kwargs):
         # Phase 3: delegate to the underlying predictor, then wrap in StructuredResult.

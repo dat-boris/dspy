@@ -137,6 +137,33 @@ def optimize(
     return optimized_program
 
 
+def refine_schema_example():
+    """Demonstrate a simple extend-only schema refinement for StructureOfThought."""
+
+    class ExtendedStructoResponse(StructoResponse):
+        confidence: float | None = Field(
+            default=None,
+            description="Optional confidence score for the selected answer.",
+        )
+
+    class ExtendedSignature(dspy.Signature):
+        """Extended signature that adds a confidence field to the structured response."""
+
+        input: str = dspy.InputField()
+        response: ExtendedStructoResponse = dspy.OutputField(
+            desc="Structured response with reasoning, answer, and confidence",
+        )
+
+    program = dspy.StructureOfThought(ExampleSignature)
+    print("=== Original StructureOfThought Schema ===")
+    print(program.schema_repr())
+
+    # Rebind to an extend-only compatible schema (ExtendedStructoResponse subclass).
+    program.rebind_signature(ExtendedSignature)
+    print("=== Refined StructureOfThought Schema (ExtendedSignature) ===")
+    print(program.schema_repr())
+
+
 def evaluate(
     program,
     dataset_name: str = "tracking_shuffled_objects_five_objects",
