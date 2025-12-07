@@ -9,6 +9,22 @@ import dspy
 
 from examples.dataset_loader import load_dspy_dataset
 
+# Enable MLflow autologging for DSPy optimization tracking (optional)
+try:
+    import mlflow
+
+    mlflow.dspy.autolog(
+        log_compiles=True,    # Track optimization process
+        log_evals=True,       # Track evaluation results
+        log_traces_from_compile=True  # Track program traces during optimization
+    )
+
+    # Configure MLflow tracking
+    mlflow.set_tracking_uri("http://localhost:5000")  # Use local MLflow server
+    mlflow.set_experiment("DSPy-StructureOfThought-Optimization")
+except ImportError:
+    print("MLflow not available, continuing without tracking")
+    pass
 
 # Points at LiteLLM proxy
 dspy.configure(
