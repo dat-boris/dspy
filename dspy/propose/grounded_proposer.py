@@ -232,15 +232,19 @@ class GenerateModuleInstruction(dspy.Module):
                     else:
                         outputs.append(field_name)
 
-                module_code = f"{program.predictors()[pred_i].__class__.__name__}({', '.join(inputs)}) -> {', '.join(outputs)}"
+                if hasattr(program, "module_description"):
+                    module_description = program.module_description
+                else:
+                    module_code = f"{program.predictors()[pred_i].__class__.__name__}({', '.join(inputs)}) -> {', '.join(outputs)}"
 
-                module_description = self.describe_module(
-                    program_code=self.program_code_string,
-                    program_description=program_description,
-                    program_example=task_demos,
-                    module=module_code,
-                    max_depth=10,
-                ).module_description
+                    module_description = self.describe_module(
+                        program_code=self.program_code_string,
+                        program_description=program_description,
+                        program_example=task_demos,
+                        module=module_code,
+                        max_depth=10,
+                    ).module_description
+
             except Exception as e:
                 if self.verbose:
                     print(f"Error getting program description. Running without program aware proposer. Error: {e}")

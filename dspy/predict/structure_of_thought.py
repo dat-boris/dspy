@@ -4,6 +4,7 @@ from typing import Any
 
 import dspy
 import pydantic
+from dspy.predict.predict import Predict
 from dspy.primitives.module import Module
 from dspy.signatures.signature import Signature, ensure_signature
 
@@ -180,21 +181,108 @@ def _build_output_schema(signature: Signature) -> dict[str, Any]:
     return output_schema
 
 
+class PredictWithStructure(Predict):
+    """Predict primitive that exposes its output schema via `Signature.instructions`.
+
+    Responsibilities:
+    - Enforce that all outputs are Pydantic models (strict structured outputs).
+    - Compute a JSON schema describing the output structure (including any
+      `reasoning_json`) from the Signature.
+    - Store this schema as `output_schema` / `output_schema_json`.
+    - Set `self.signature.instructions` to the pretty-printed JSON schema so
+      that teleprompters/proposers can read it via::
+
+          basic_instruction = get_signature(predictor).instructions
+
+    In other words, for modules built from `PredictWithStructure`, the
+    \"instruction\" for a predictor *is* the JSON schema of the structured
+    outputs (rather than a natural-language prompt), which downstream tools
+    can use when proposing updated schemas or reasoning structures.
+    """
+
+    def __init__(self, signature: str | type[Signature], callbacks=None, **config: dict[str, Any]):
+        super().__init__(signature=signature, callbacks=callbacks, **config)
+
+        # Enforce and derive schema from the bound signature.
+        _ensure_pydantic_outputs(self.signature)
+        self.output_schema: dict[str, Any] = _build_output_schema(self.signature)
+        self.output_schema_json: str = json.dumps(self.output_schema, indent=2, sort_keys=True)
+
+        # Expose the schema via instructions so optimizers/proposers can see it.
+        self.signature.instructions = self.output_schema_json
+
+
+# This is the description that will be used by proposer to use as fht module description
+# when generating the instruction for the module.
+STRUCTURE_OF_THOUGHT_MODULE_DESCRIPTION = """
+The instruciton for the moduel is a JSON schema.  Utilizing that JSON schema, the moduel
+will generate a JSON object that attempts to solve the program task.  The JSON schema should
+represent a data structure that is relevant to the program task.
+
+In particular, pay attention to the order of the json schema to ensure that the module
+should generate the JSON object in the correct order.
+
+For example, if the JSON schema is:
+{
+    "answer": "string",
+    "reasoning": "string",
+}
+We want to ensure that reasoning is the first field and answer is the second field, since
+we want the reasoning to be the first field and answer to be the second field.
+
+Also we can imporve the reasoning schema to be as specific as possible.
+
+The instruction provided (e.g. `basic_instruction`, `proposed_instruction`) MUST be a valid JSON schema.
+
+Ideally, the `proposed_instruction` should be derived as a compataiable JSON schema from the `basic_instruction`.
+
+For example, if the `basic_instruction` is:
+{
+    "answer": "string",
+    "reasoning": "string",
+}
+The `proposed_instruction` should be:
+{
+    "reasoning": "string",
+    "answer": "string",
+}
+"""
+
+
 class StructureOfThought(Module):
-    """StructureOfThought program (Phase 1–2 implementation).
+    """StructureOfThought program.
 
-    Current behavior:
-    - Wraps a standard dspy.Predict constructed from the provided signature so
-      it already fits into existing teleprompting/optimization flows that
-      expect a normal DSPy program.
-    - Introduces a `StructuredResult` container type and a minimal superset
-      validator `_validate_reasoning_superset` that will be used in later
-      phases when we attach explicit reasoning_json handling to LM outputs.
+    Design goals:
+    - Behave like a standard DSPy program from the perspective of teleprompters
+      and proposers (e.g., MIPROv2, GroundedProposer) by exposing predictors
+      that are subclasses of `dspy.Predict` and therefore visible to
+      `module.predictors()`, `get_signature(predictor)`, etc.
+    - Provide a strongly structured result via `StructuredResult`, including
+      optional `reasoning_json` that is a superset-compatible trace of the
+      primary outputs.
+    - Maintain an explicit JSON schema of the output structure (including any
+      `reasoning_json`) and use that schema as the canonical description of
+      what the program returns.
 
-    Later phases will:
-    - Bind a signature that includes both output schema and reasoning_json_schema.
-    - Invoke the underlying LM via existing DSPy prediction primitives.
-    - Return strictly validated StructuredResult instances.
+    Critical interaction with teleprompters/proposers:
+    - Components like `GroundedProposer` obtain a "basic instruction" for each
+      predictor via::
+
+          basic_instruction = get_signature(program.predictors()[pred_i]).instructions
+
+    - `StructureOfThought` therefore composes `PredictWithStructure` predictors,
+      which automatically set their `Signature.instructions` string to a
+      pretty-printed JSON schema of the output structure. This means that
+      `basic_instruction` becomes the JSON schema text for the outputs, giving
+      proposers direct access to the structured result shape when generating or
+      refining instructions/schemas.
+    - When `rebind_signature` is used in optimization flows, `StructureOfThought`
+      MUST regenerate both:
+        * the stored output JSON schema, and
+        * the underlying `PredictWithStructure` instances (and thus their
+          `Signature.instructions` strings)
+      so that teleprompters/proposers always see an up-to-date schema when they
+      call `get_signature(predictor).instructions`.
     """
 
     def __init__(self, signature: str | type[Signature], *, strict: bool = True, **config: dict[str, Any]):
@@ -210,9 +298,15 @@ class StructureOfThought(Module):
         self.output_schema: dict[str, Any] = _build_output_schema(self.signature)
         self.output_schema_json: str = json.dumps(self.output_schema, indent=2, sort_keys=True)
 
-        # Reuse the existing Predict primitive so we immediately behave like a
-        # standard DSPy program from the perspective of teleprompters/proposers.
-        self._predict = dspy.Predict(self.signature, **self._predict_config)
+        # Use PredictWithStructure so predictors expose JSON schema via instructions
+        # while still behaving like standard Predict instances to the rest of DSPy.
+        self._predict = PredictWithStructure(self.signature, **self._predict_config)
+
+
+    @property
+    def module_description(self) -> str:
+        return STRUCTURE_OF_THOUGHT_MODULE_DESCRIPTION
+
 
     def schema_repr(self) -> str:
         """Return a human-readable JSON schema for the structured outputs.
@@ -242,7 +336,7 @@ class StructureOfThought(Module):
         self.signature = new_sig
         self.output_schema = _build_output_schema(self.signature)
         self.output_schema_json = json.dumps(self.output_schema, indent=2, sort_keys=True)
-        self._predict = dspy.Predict(self.signature, **self._predict_config)
+        self._predict = PredictWithStructure(self.signature, **self._predict_config)
 
     def forward(self, **kwargs):
         # Phase 3: delegate to the underlying predictor, then wrap in StructuredResult.

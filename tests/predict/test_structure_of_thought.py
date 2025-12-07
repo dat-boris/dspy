@@ -5,11 +5,14 @@ import pytest
 import dspy
 import pydantic
 from dspy.predict.structure_of_thought import (
+    PredictWithStructure,
     StructuredResult,
     _check_extend_only_compatible,
     _ensure_pydantic_outputs,
     _validate_reasoning_superset,
 )
+from dspy.teleprompt.utils import get_signature
+from dspy.utils import DummyLM
 
 
 def test_structure_of_thought_import_and_basic_instantiation_with_pydantic_output():
@@ -28,6 +31,18 @@ def test_structure_of_thought_import_and_basic_instantiation_with_pydantic_outpu
     assert sot.signature is not None
     assert "question" in sot.signature.input_fields
     assert "response" in sot.signature.output_fields
+
+    # The underlying predictor should be a PredictWithStructure.
+    predictors = sot.predictors()
+    assert len(predictors) == 1
+    predictor = predictors[0]
+    assert isinstance(predictor, PredictWithStructure)
+
+    # Its instructions should contain a JSON schema describing the outputs.
+    sig = get_signature(predictor)
+    schema = json.loads(sig.instructions)
+    assert "properties" in schema
+    assert "response" in schema["properties"]
 
     # We cannot call the LM in tests, but we can still construct a StructuredResult
     # and rely on its ergonomic access patterns.
@@ -224,3 +239,45 @@ def test_rebind_signature_updates_signature_and_preserves_config():
     assert "y" in sot.signature.output_fields
     assert sot.signature.output_fields["y"].annotation is ExtendedOut
 
+    # Updated predictor should also be a PredictWithStructure with schema in instructions.
+    predictor = sot.predictors()[0]
+    assert isinstance(predictor, PredictWithStructure)
+    schema = json.loads(get_signature(predictor).instructions)
+    assert "properties" in schema
+    assert "y" in schema["properties"]
+
+
+def test_predict_with_structure_with_instructions_overrides_schema_used_in_forward_preprocess():
+    class SimpleResponse(pydantic.BaseModel):
+        answer: str
+
+    class SimpleSignature(dspy.Signature):
+        question: str = dspy.InputField()
+        response: SimpleResponse = dspy.OutputField()
+
+    pws = PredictWithStructure(SimpleSignature)
+
+    original_sig = get_signature(pws)
+    original_schema = json.loads(original_sig.instructions)
+    assert "response" in original_schema.get("properties", {})
+
+    # Override instructions with a new JSON schema string.
+    new_schema = {
+        "type": "object",
+        "properties": {
+            "response": {"type": "string", "description": "updated schema"},
+        },
+        "required": ["response"],
+    }
+    new_schema_str = json.dumps(new_schema, indent=2, sort_keys=True)
+
+    updated_sig = original_sig.with_instructions(new_schema_str)
+    # Simulate teleprompter behavior: set the predictor's signature to the updated one.
+    pws.signature = updated_sig
+
+    # When PredictWithStructure prepares to call the LM/adapter, it should
+    # surface the updated instructions (schema) as the signature it passes along.
+    lm = DummyLM([{"response": "dummy"}])
+    _, _, sig, _, _ = pws._forward_preprocess(question="What is 1+1?", lm=lm)
+    assert sig.instructions == new_schema_str
+    assert json.loads(sig.instructions) == new_schema

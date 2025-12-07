@@ -20,13 +20,15 @@ dspy.configure(
 dspy.configure_cache(enable_disk_cache=False)
 
 # NOTE: we need to use a smarter model for optimization since the base model could be not good at reasoning
-OPTIMIZATION_MODEL = dspy.LM("openai/gpt-4o-mini", api_base="http://0.0.0.0:4000")
+OPTIMIZATION_MODEL = dspy.LM("openai/gpt-5.1", api_base="http://0.0.0.0:4000")
 
 
 class StructoResponse(BaseModel):
     """Structured response container with reasoning and answer fields."""
-    reasoning: str = Field(description="The reasoning process for the answer")
+    # NOTE: we intentionally put answer first so we can ensure that the order
+    # is optimized when the program is used.
     answer: str = Field(description="The final answer to the question - give the answer in format of (A), (B), (C), (D), or (E)")
+    reasoning: str = Field(description="The reasoning process for the answer")
 
 
 class ExampleSignature(dspy.Signature):
@@ -244,9 +246,9 @@ if __name__ == "__main__":
     answer = optimized_program(input=test_input)
     print(f"Optimized program answer: {answer}")
 
-    # # 3. Evaluate the optimized program
-    # print("\n" + "=" * 60)
-    # print("3. Evaluating Program (20 examples)")
-    # print("=" * 60)
-    # accuracy = evaluate(optimized_program, limit=20)
-    # print(f"Final accuracy: {accuracy}")
+    # 3. Evaluate the optimized program
+    print("\n" + "=" * 60)
+    print("3. Evaluating Program (20 examples)")
+    print("=" * 60)
+    accuracy = evaluate(optimized_program, limit=20)
+    print(f"Final accuracy: {accuracy}")

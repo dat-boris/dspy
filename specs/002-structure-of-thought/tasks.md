@@ -27,16 +27,21 @@
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core data structures and validation behavior that all stories depend on.
+**Purpose**: Core data structures, schema logic, structured prediction primitive, and documentation of how they integrate with teleprompters/proposers.
 
 **⚠️ CRITICAL**: No user story work should begin until this phase is complete.
 
 - [x] T010 [US-Foundation] Define internal data structures for `OutputSchema` and `reasoning_json_schema` in `dspy/predict/structure_of_thought.py`, aligned with `data-model.md` (primary outputs + reasoning JSON superset rule).
 - [x] T011 [US-Foundation] Implement a `StructuredResult` container type in `dspy/predict/structure_of_thought.py` with fields for primary outputs, `reasoning_json`, and validation metadata.
-- [x] T012 [P] [US-Foundation] Wire validation to existing adapter/JSON tooling (e.g., use JSON-oriented adapter behavior) without yet exposing a full user-facing API.
+- [x] T012 [P] [US-Foundation] Wire validation to a StructureOfThought-specific adapter (likely built on top of `dspy.JSONAdapter` or similar JSON-oriented tooling) without yet exposing a full user-facing API.
 - [x] T013 [P] [US-Foundation] Add unit tests in `tests/predict/test_structure_of_thought.py` that validate basic schema enforcement and strict error behavior on clearly invalid outputs.
+- [x] T014 [US-Foundation] Introduce a new `PredictWithStructure` primitive in `dspy/predict/structure_of_thought.py` as a subclass of `dspy.Predict` that: (a) enforces Pydantic output models; (b) computes a JSON schema for the output structure (including any `reasoning_json`); and (c) sets its own `Signature.instructions` string to that pretty-printed JSON schema.
+- [x] T015 [P] [US-Foundation] Refactor `StructureOfThought` to stop constructing plain `dspy.Predict` instances and instead compose one or more `PredictWithStructure` predictors from the provided signature, so that teleprompters/proposers still see standard predictors but their `instructions` contain the output JSON schema.
+- [x] T016 [P] [US-Foundation] Ensure `StructureOfThought.rebind_signature` delegates schema evolution to the underlying `PredictWithStructure` predictors (updating their Signatures and `instructions`), and enforces extend-only compatibility when updating the output schema.
+- [x] T017 [P] [US-Foundation] Add tests in `tests/predict/test_structure_of_thought.py` that verify, for a `StructureOfThought` built on `PredictWithStructure`, that `get_signature(program.predictors()[i]).instructions` is valid JSON matching the output schema (before and after `rebind_signature`).
+- [ ] T018 [P] [US-Foundation] Update the class-level docstrings and key inline comments in `dspy/predict/structure_of_thought.py` (for both `PredictWithStructure` and `StructureOfThought`) to clearly document: (a) that `PredictWithStructure` sets `Signature.instructions` to the output JSON schema, and (b) that teleprompters/proposers (e.g., `GroundedProposer`) are expected to read this schema via `get_signature(predictor).instructions` when constructing `basic_instruction`.
 
-**Checkpoint**: Schema types and strict validation exist and are test-covered; `StructureOfThought` can be built on top safely.
+**Checkpoint**: The structured prediction primitive (`PredictWithStructure`), schema logic, and strict validation exist and are test-covered; `StructureOfThought` composes them and is ready for user stories.
 
 ---
 
@@ -95,7 +100,7 @@
 
 **Purpose**: Final improvements that cut across all user stories.
 
-- [ ] T050 [P] [Polish] Review and refine docstrings and in-code comments in `dspy/predict/structure_of_thought.py` to match DSPy documentation standards.
+- [ ] T050 [P] [Polish] Review and refine docstrings and in-code comments in `dspy/predict/structure_of_thought.py` to match DSPy documentation standards (style, clarity, examples), building on the design notes added in Phase 2.
 - [ ] T051 [P] [Polish] Ensure `quickstart.md` and `contracts/structure_of_thought_contracts.md` match the final implemented API.
 - [ ] T052 [P] [Polish] Run the full test suite (including existing `tests/predict` and examples) and fix any regressions introduced by `StructureOfThought`.
 - [ ] T053 [Polish] Consider minor performance and logging refinements (e.g., avoid logging overly large `reasoning_json` objects while still providing useful debugging context).
