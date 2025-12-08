@@ -70,7 +70,6 @@ class StructureJSONAdapter(JSONAdapter):
         back to the default :class:`JSONAdapter` behaviour, which derives the
         schema from ``signature.output_fields``.
         """
-        import pdb; pdb.set_trace()
         schema = self._load_schema_from_instructions(signature)
         if not schema:
             return super()._get_structured_outputs_model(signature)
